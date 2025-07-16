@@ -1,0 +1,22 @@
+[
+  {
+    "description": "Successful registration",
+    "eventId": "<small_workshop_id>",
+    "userId": "<user1_id>"
+  },
+  {
+    "description": "Duplicate registration (should fail)",
+    "eventId": "<small_workshop_id>",
+    "userId": "<user1_id>"
+  },
+  {
+    "description": "Second registration",
+    "eventId": "<small_workshop_id>",
+    "userId": "<user2_id>"
+  },
+  {
+    "description": "Over-capacity registration (should fail)",
+    "eventId": "<small_workshop_id>",
+    "userId": "<user3_id>"
+  }
+]

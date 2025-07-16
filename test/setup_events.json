@@ -1,0 +1,14 @@
+[
+  {
+    "title": "Small Workshop",
+    "dateTime": "2023-11-10T14:00:00Z",
+    "location": "Room 101",
+    "capacity": 2
+  },
+  {
+    "title": "Large Conference",
+    "dateTime": "2023-11-15T09:00:00Z",
+    "location": "Main Hall",
+    "capacity": 1000
+  }
+]
