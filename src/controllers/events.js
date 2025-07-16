@@ -59,42 +59,57 @@ const registerForEvent = async (req, res) => {
   const { eventId, userId } = req.params;
 
   try {
-    // Get event with registration count
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: { _count: { select: { registrations: true } } }
+    // Atomic check-and-update to prevent race conditions
+    const registration = await prisma.$transaction(async (tx) => {
+      // 1. Get event with lock
+      const event = await tx.event.findUnique({
+        where: { id: eventId },
+        select: { dateTime: true, capacity: true }
+      });
+      
+      // 2. Check event exists
+      if (!event) throw new Error('EVENT_NOT_FOUND');
+      
+      // 3. Check event date
+      if (new Date(event.dateTime) < new Date()) {
+        throw new Error('PAST_EVENT');
+      }
+      
+      // 4. Check capacity with current registrations
+      const regCount = await tx.eventRegistration.count({
+        where: { eventId }
+      });
+      
+      if (regCount >= event.capacity) {
+        throw new Error('FULL_CAPACITY');
+      }
+      
+      // 5. Check existing registration
+      const exists = await tx.eventRegistration.findFirst({
+        where: { eventId, userId }
+      });
+      if (exists) throw new Error('DUPLICATE_REGISTRATION');
+      
+      // 6. Create registration
+      return tx.eventRegistration.create({
+        data: { eventId, userId }
+      });
     });
-
-    // Validate event
-    if (!event) return res.status(404).json({ error: 'Event not found' });
     
-    // Check capacity
-    if (event._count.registrations >= event.capacity) {
-      return res.status(400).json({ error: 'Event at full capacity' });
-    }
-    
-    // Check date
-    if (new Date(event.dateTime) < new Date()) {
-      return res.status(400).json({ error: 'Cannot register for past events' });
-    }
-
-    // Check existing registration
-    const existingRegistration = await prisma.eventRegistration.findFirst({
-      where: { eventId, userId }
-    });
-    
-    if (existingRegistration) {
-      return res.status(409).json({ error: 'User already registered' });
-    }
-
-    // Create registration
-    await prisma.eventRegistration.create({
-      data: { eventId, userId }
-    });
-    
-    res.status(201).json({ message: 'Registration successful' });
+    res.status(201).json({ message: 'Registered successfully' });
   } catch (error) {
-    res.status(500).json({ error: 'Registration failed' });
+    switch (error.message) {
+      case 'EVENT_NOT_FOUND': 
+        return res.status(404).json({ error: 'Event not found' });
+      case 'PAST_EVENT': 
+        return res.status(400).json({ error: 'Cannot register for past events' });
+      case 'FULL_CAPACITY': 
+        return res.status(400).json({ error: 'Event at full capacity' });
+      case 'DUPLICATE_REGISTRATION': 
+        return res.status(409).json({ error: 'User already registered' });
+      default: 
+        return res.status(500).json({ error: 'Registration failed' });
+    }
   }
 };
 
