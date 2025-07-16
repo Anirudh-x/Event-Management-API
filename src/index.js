@@ -11,6 +11,7 @@ app.use(express.json());
 
 // Routes
 app.use('/events', eventRoutes);
+app.use('/users', userRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on port http://localhost:${port}/`);
