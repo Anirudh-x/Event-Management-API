@@ -1,14 +1,16 @@
 require('dotenv').config();
 const express = require('express');
-const HelloRoute = require('./routes/hello.js');
+const { PrismaClient } = require('@prisma/client');
+const eventRoutes = require('./routes/events.js');
 
+const prisma = new PrismaClient();
 const app = express();
-const port = process.env.PORT || 5001;
-
+const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-app.use("/", HelloRoute);
+// Routes
+app.use('/events', eventRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on port http://localhost:${port}/`);
