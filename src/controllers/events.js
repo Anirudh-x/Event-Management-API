@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { calculateStats } = require('../utils/eventUtils');
 
 // a. Create Event
 const createEvent = async (req, res) => {
@@ -59,57 +60,72 @@ const registerForEvent = async (req, res) => {
   const { eventId, userId } = req.params;
 
   try {
-    // Atomic check-and-update to prevent race conditions
-    const registration = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Get event with lock
       const event = await tx.event.findUnique({
         where: { id: eventId },
-        select: { dateTime: true, capacity: true }
+        select: { id: true, dateTime: true, capacity: true }
       });
-      
-      // 2. Check event exists
+
       if (!event) throw new Error('EVENT_NOT_FOUND');
       
-      // 3. Check event date
+      // 2. Check date
       if (new Date(event.dateTime) < new Date()) {
         throw new Error('PAST_EVENT');
       }
-      
-      // 4. Check capacity with current registrations
-      const regCount = await tx.eventRegistration.count({
-        where: { eventId }
-      });
-      
-      if (regCount >= event.capacity) {
-        throw new Error('FULL_CAPACITY');
-      }
-      
-      // 5. Check existing registration
-      const exists = await tx.eventRegistration.findFirst({
+
+      // 3. Check existing registration
+      const existing = await tx.eventRegistration.findFirst({
         where: { eventId, userId }
       });
-      if (exists) throw new Error('DUPLICATE_REGISTRATION');
-      
-      // 6. Create registration
+      if (existing) throw new Error('DUPLICATE_REGISTRATION');
+
+      // 4. Check capacity with atomic count
+      const regCount = await tx.eventRegistration.count({ where: { eventId } });
+      if (regCount >= event.capacity) throw new Error('FULL_CAPACITY');
+
+      // 5. Create registration
       return tx.eventRegistration.create({
         data: { eventId, userId }
       });
     });
-    
-    res.status(201).json({ message: 'Registered successfully' });
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Registration successful'
+    });
   } catch (error) {
-    switch (error.message) {
-      case 'EVENT_NOT_FOUND': 
-        return res.status(404).json({ error: 'Event not found' });
-      case 'PAST_EVENT': 
-        return res.status(400).json({ error: 'Cannot register for past events' });
-      case 'FULL_CAPACITY': 
-        return res.status(400).json({ error: 'Event at full capacity' });
-      case 'DUPLICATE_REGISTRATION': 
-        return res.status(409).json({ error: 'User already registered' });
-      default: 
-        return res.status(500).json({ error: 'Registration failed' });
-    }
+    // Error handling with standardized format
+    const errors = {
+      EVENT_NOT_FOUND: { 
+        status: 404, 
+        message: 'Event not found' 
+      },
+      PAST_EVENT: { 
+        status: 400, 
+        message: 'Cannot register for past events' 
+      },
+      DUPLICATE_REGISTRATION: { 
+        status: 409, 
+        message: 'User already registered for this event' 
+      },
+      FULL_CAPACITY: { 
+        status: 400, 
+        message: 'Event has reached maximum capacity' 
+      }
+    };
+
+    const errorInfo = errors[error.message] || { 
+      status: 500, 
+      message: 'Registration failed' 
+    };
+
+    res.status(errorInfo.status).json({
+      error: {
+        code: error.message,
+        message: errorInfo.message
+      }
+    });
   }
 };
 
@@ -118,23 +134,27 @@ const cancelRegistration = async (req, res) => {
   const { eventId, userId } = req.params;
   
   try {
-    // Find registration
-    const registration = await prisma.eventRegistration.findFirst({
+    const { count } = await prisma.eventRegistration.deleteMany({
       where: { eventId, userId }
     });
     
-    if (!registration) {
-      return res.status(404).json({ error: 'Registration not found' });
+    if (count === 0) {
+      return res.status(404).json({
+        error: {
+          code: 'REGISTRATION_NOT_FOUND',
+          message: 'No registration found for this user and event'
+        }
+      });
     }
-    
-    // Delete registration
-    await prisma.eventRegistration.delete({
-      where: { id: registration.id }
-    });
     
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: 'Cancellation failed' });
+    res.status(500).json({
+      error: {
+        code: 'CANCELLATION_FAILED',
+        message: 'Failed to cancel registration'
+      }
+    });
   }
 };
 
@@ -166,24 +186,28 @@ const getEventStats = async (req, res) => {
   const { id } = req.params;
   
   try {
-    const event = await prisma.event.findUnique({
-      where: { id },
-      include: { _count: { select: { registrations: true } } }
-    });
+    const [event, regCount] = await Promise.all([
+      prisma.event.findUnique({ where: { id } }),
+      prisma.eventRegistration.count({ where: { eventId: id } })
+    ]);
     
-    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (!event) {
+      return res.status(404).json({
+        error: {
+          code: 'EVENT_NOT_FOUND',
+          message: 'Event not found'
+        }
+      });
+    }
     
-    const stats = {
-      total_registrations: event._count.registrations,
-      remaining_capacity: event.capacity - event._count.registrations,
-      percentage_used: Math.round(
-        (event._count.registrations / event.capacity) * 100
-      )
-    };
-    
-    res.json(stats);
+    res.json(calculateStats(event, regCount));
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching stats' });
+    res.status(500).json({
+      error: {
+        code: 'STATS_ERROR',
+        message: 'Failed to retrieve event statistics'
+      }
+    });
   }
 };
 
