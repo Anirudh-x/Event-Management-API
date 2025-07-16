@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { calculateStats } = require('../utils/eventUtils');
+const { sortEvents } = require('../utils/eventUtils');
 
 // a. Create Event
 const createEvent = async (req, res) => {
@@ -161,23 +162,29 @@ const cancelRegistration = async (req, res) => {
 // e. List Upcoming Events
 const getUpcomingEvents = async (req, res) => {
   try {
+    // Efficient query for future events only
     const events = await prisma.event.findMany({
       where: { dateTime: { gt: new Date() } },
-      orderBy: [
-        { dateTime: 'asc' },
-        { location: 'asc' }
-      ]
+      select: {
+        id: true,
+        title: true,
+        dateTime: true,
+        location: true,
+        capacity: true
+      }
     });
     
-    res.json(events.map(event => ({
-      id: event.id,
-      title: event.title,
-      dateTime: event.dateTime,
-      location: event.location,
-      capacity: event.capacity
-    })));
+    // Custom sorting algorithm
+    const sortedEvents = sortEvents(events);
+    
+    res.json(sortedEvents);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching events' });
+    res.status(500).json({
+      error: {
+        code: 'UPCOMING_EVENTS_ERROR',
+        message: 'Failed to retrieve upcoming events'
+      }
+    });
   }
 };
 

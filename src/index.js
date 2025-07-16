@@ -8,11 +8,31 @@ const prisma = new PrismaClient();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Middleware pipeline
 app.use(express.json());
+app.use(sanitizeInput);
 
 // Routes
 app.use('/events', eventRoutes);
 app.use('/users', userRoutes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      code: 'ENDPOINT_NOT_FOUND',
+      message: 'Requested endpoint does not exist'
+    }
+  });
+});
+
+// Error handler
+app.use(errorHandler);
 
 // Global error handler
 app.use((err, req, res, next) => {
