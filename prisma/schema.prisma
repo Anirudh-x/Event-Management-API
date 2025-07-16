@@ -10,4 +10,29 @@ datasource db {
 model User {
   id        String     @id @default(uuid())
   name      String
+  email     String     @unique
+  events    EventRegistration[]
+}
+
+model Event {
+  id          String     @id @default(uuid())
+  title       String
+  dateTime    DateTime
+  location    String
+  capacity    Int
+  registrations EventRegistration[]
+  
+  @@map("events")
+}
+
+model EventRegistration {
+  id        String   @id @default(uuid())
+  event     Event    @relation(fields: [eventId], references: [id])
+  eventId   String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@map("event_registrations")
 }
